@@ -1,0 +1,120 @@
+import { useEffect, useState } from 'react';
+import Viewer from './components/Viewer';
+import { LOCATIONS, PRICE_DEFAULT, U_PRESETS, U_REF, applyMeasures, flux, measures, score, surfaceScore, totals, annualKwh, type Currency, type House, type Surface, type SurfaceType } from './lib/physics';
+import { demoHouse, fmt, uid, usePersisted } from './lib/store';
+
+const TABS = ['Dashboard', 'Thermal camera', 'House profile', 'Fix first'] as const;
+const scoreColor = (s: number) => (s >= 80 ? '#2e9e5b' : s >= 55 ? '#d9a21b' : '#d64933');
+
+export default function App() {
+  const [house, setHouse] = usePersisted<House>('hh.house', demoHouse);
+  const [tab, setTab] = usePersisted<(typeof TABS)[number]>('hh.tab', () => 'Dashboard');
+  useEffect(() => { const h = decodeURIComponent(location.hash.slice(1)).toLowerCase(); const m = TABS.find((t) => t.toLowerCase().startsWith(h)); if (h && m) setTab(m); }, []); // eslint-disable-line
+  return (
+    <div className="app">
+      <header><div className="logo">◧ House Health</div><div className="sub">{house.name} · heat loss in W/m²</div>
+        <nav>{TABS.map((t) => <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t}</button>)}</nav></header>
+      <main>
+        {tab === 'Dashboard' && <Dashboard house={house} go={setTab} />}
+        {tab === 'Thermal camera' && <Viewer settings={house.settings} />}
+        {tab === 'House profile' && <Profile house={house} setHouse={setHouse} />}
+        {tab === 'Fix first' && <FixFirst house={house} />}
+      </main>
+      <footer>Steady-state transmission model (EN ISO 13790/6946 simplified). Excludes ventilation, infiltration, solar and internal gains. Data is stored only in this browser.</footer>
+    </div>
+  );
+}
+
+function Kpi({ label, value, unit, big }: { label: string; value: string; unit: string; big?: boolean }) {
+  return <div className={'kpi' + (big ? ' primary' : '')}><div className="kl">{label}</div><div className="kv">{value} <span>{unit}</span></div></div>;
+}
+
+function Dashboard({ house, go }: { house: House; go: (t: (typeof TABS)[number]) => void }) {
+  const t = totals(house), sc = score(house), ms = measures(house), cur = house.settings.currency;
+  return (<>
+    <div className="kpis">
+      <div className="kpi score" style={{ borderColor: scoreColor(sc.total) }}><div className="kl">House-health score</div><div className="kv" style={{ color: scoreColor(sc.total) }}>{sc.total}<span>/100</span></div></div>
+      <Kpi big label={`Avg. envelope heat loss @ ΔT ${house.settings.tIn - house.settings.tOut} K`} value={fmt(t.wpm2, 1)} unit="W/m²" />
+      <Kpi label="Design heat loss" value={fmt(t.watts / 1000, 2)} unit="kW" />
+      <Kpi label="Annual transmission energy" value={fmt(t.kwh)} unit="kWh/yr" />
+      <Kpi label="Annual cost" value={fmt(t.cost)} unit={cur + '/yr'} />
+    </div>
+    <div className="grid2">
+      <div className="card"><h3>Score breakdown</h3>
+        {sc.parts.map((p) => <div key={p.type} className="bar"><span className="bl">{p.type}</span>
+          <div className="track"><div style={{ width: p.score + '%', background: scoreColor(p.score) }} /></div>
+          <span className="bv">{p.score}</span><span className="bs">{fmt(p.uAvg * (house.settings.tIn - house.settings.tOut), 1)} W/m² · {fmt(p.share * 100)}% of loss</span></div>)}
+        <p className="note">Each category scores 100 at or below the TEK17 U-value limit and falls as (U<sub>ref</sub>/U)<sup>0.6</sup>. The total is weighted by each category's share of heat loss.</p>
+      </div>
+      <div className="card"><h3>Top issues</h3>
+        <table><thead><tr><th>Surface</th><th>W/m²</th><th>Saves</th><th>Payback</th></tr></thead><tbody>
+          {ms.slice(0, 5).map((m) => <tr key={m.id}><td>{m.room}: {m.type}<div className="dim">{m.label}</div></td><td>{fmt(m.uBefore * (house.settings.tIn - house.settings.tOut), 1)}</td><td>{fmt(m.moneySaved)} {cur}/yr</td><td>{fmt(m.payback, 1)} yr</td></tr>)}
+        </tbody></table>
+        {ms.length === 0 && <p className="note">No major issues. The envelope is near TEK17 level.</p>}
+        <button className="link" onClick={() => go('Fix first')}>Full retrofit plan →</button>
+        <button className="link" onClick={() => go('Thermal camera')}>Inspect thermal image →</button>
+      </div>
+    </div>
+  </>);
+}
+
+function Profile({ house, setHouse }: { house: House; setHouse: (h: House) => void }) {
+  const s = house.settings, t = totals(house);
+  const setS = (p: Partial<House['settings']>) => setHouse({ ...house, settings: { ...s, ...p } });
+  const upd = (rid: string, f: (ss: Surface[]) => Surface[]) => setHouse({ ...house, rooms: house.rooms.map((r) => (r.id === rid ? { ...r, surfaces: f(r.surfaces) } : r)) });
+  return (<>
+    <div className="card"><h3>Climate & price</h3><div className="form">
+      <label>House name<input value={house.name} onChange={(e) => setHouse({ ...house, name: e.target.value })} /></label>
+      <label>Location<select value={s.location} onChange={(e) => { const l = LOCATIONS[e.target.value]; setS({ location: e.target.value, degreeDays: l.dd, tOut: l.tOut }); }}>{Object.keys(LOCATIONS).map((l) => <option key={l}>{l}</option>)}</select></label>
+      <label>Indoor °C<input type="number" value={s.tIn} onChange={(e) => setS({ tIn: +e.target.value })} /></label>
+      <label>Outdoor design °C<input type="number" value={s.tOut} onChange={(e) => setS({ tOut: +e.target.value })} /></label>
+      <label>Degree-days (Kd/yr)<input type="number" value={s.degreeDays} onChange={(e) => setS({ degreeDays: +e.target.value, location: 'Custom' })} /></label>
+      <label>Currency<select value={s.currency} onChange={(e) => { const c = e.target.value as Currency; setS({ currency: c, price: PRICE_DEFAULT[c] }); }}><option>NOK</option><option>EUR</option></select></label>
+      <label>Price ({s.currency}/kWh)<input type="number" step="0.01" value={s.price} onChange={(e) => setS({ price: +e.target.value })} /></label>
+      <label>&nbsp;<button onClick={() => confirm('Replace profile with demo data?') && setHouse(demoHouse())}>Reset to demo</button></label>
+    </div></div>
+    {house.rooms.map((r) => (
+      <div className="card" key={r.id}>
+        <div className="rowh"><input className="rname" value={r.name} onChange={(e) => setHouse({ ...house, rooms: house.rooms.map((x) => (x.id === r.id ? { ...x, name: e.target.value } : x)) })} />
+          <button className="x" onClick={() => setHouse({ ...house, rooms: house.rooms.filter((x) => x.id !== r.id) })}>Remove room</button></div>
+        <table><thead><tr><th>Surface</th><th>Type</th><th>Area m²</th><th>U preset</th><th>U W/m²K</th><th>W/m²</th><th>W</th><th>kWh/yr</th><th>Score</th><th></th></tr></thead><tbody>
+          {r.surfaces.map((sf) => { const set = (p: Partial<Surface>) => upd(r.id, (ss) => ss.map((x) => (x.id === sf.id ? { ...x, ...p } : x))); return (
+            <tr key={sf.id}>
+              <td><input value={sf.name} onChange={(e) => set({ name: e.target.value })} /></td>
+              <td><select value={sf.type} onChange={(e) => { const ty = e.target.value as SurfaceType; set({ type: ty, u: U_PRESETS[ty][1].u }); }}>{Object.keys(U_REF).map((k) => <option key={k}>{k}</option>)}</select></td>
+              <td><input className="num" type="number" step="0.5" value={sf.area} onChange={(e) => set({ area: +e.target.value })} /></td>
+              <td><select value="" onChange={(e) => e.target.value && set({ u: +e.target.value })}><option value="">choose…</option>{U_PRESETS[sf.type].map((p) => <option key={p.label} value={p.u}>{p.label} ({p.u})</option>)}</select></td>
+              <td><input className="num" type="number" step="0.01" value={sf.u} onChange={(e) => set({ u: +e.target.value })} /></td>
+              <td><b>{fmt(flux(sf.u, s), 1)}</b></td><td>{fmt(flux(sf.u, s) * sf.area)}</td><td>{fmt(annualKwh(sf.u, sf.area, s.degreeDays))}</td>
+              <td style={{ color: scoreColor(surfaceScore(sf)) }}>{surfaceScore(sf)}</td>
+              <td><button className="x" onClick={() => upd(r.id, (ss) => ss.filter((x) => x !== sf))}>×</button></td></tr>); })}
+        </tbody></table>
+        <button onClick={() => upd(r.id, (ss) => [...ss, { id: uid(), name: 'New surface', type: 'wall', area: 10, u: 0.4 }])}>+ Surface</button>
+      </div>))}
+    <button onClick={() => setHouse({ ...house, rooms: [...house.rooms, { id: uid(), name: 'New room', surfaces: [] }] })}>+ Room</button>
+    <div className="card"><h3>Whole house</h3><p>Envelope {fmt(t.area)} m² · UA {fmt(t.ua, 1)} W/K · <b>{fmt(t.wpm2, 1)} W/m²</b> · {fmt(t.watts)} W at ΔT {s.tIn - s.tOut} K · {fmt(t.kwh)} kWh/yr · {fmt(t.cost)} {s.currency}/yr</p></div>
+  </>);
+}
+
+function FixFirst({ house }: { house: House }) {
+  const ms = measures(house), [sel, setSel] = useState<Set<string>>(() => new Set(ms.slice(0, 3).map((m) => m.id)));
+  const chosen = ms.filter((m) => sel.has(m.id)), after = applyMeasures(house, chosen);
+  const b = totals(house), a = totals(after), sb = score(house).total, sa = score(after).total, cur = house.settings.currency, dt = house.settings.tIn - house.settings.tOut;
+  const inv = chosen.reduce((x, m) => x + m.cost, 0);
+  return (<>
+    <div className="card"><h3>Before / after the selected retrofit</h3>
+      <table className="ba"><thead><tr><th></th><th>Score</th><th>W/m²</th><th>kW design</th><th>kWh/yr</th><th>{cur}/yr</th></tr></thead><tbody>
+        <tr><td>Before</td><td>{sb}</td><td>{fmt(b.wpm2, 1)}</td><td>{fmt(b.watts / 1000, 2)}</td><td>{fmt(b.kwh)}</td><td>{fmt(b.cost)}</td></tr>
+        <tr><td>After</td><td><b>{sa}</b></td><td><b>{fmt(a.wpm2, 1)}</b></td><td>{fmt(a.watts / 1000, 2)}</td><td>{fmt(a.kwh)}</td><td>{fmt(a.cost)}</td></tr>
+        <tr className="dim"><td>Change</td><td>+{sa - sb}</td><td>−{fmt(b.wpm2 - a.wpm2, 1)}</td><td>−{fmt((b.watts - a.watts) / 1000, 2)}</td><td>−{fmt(b.kwh - a.kwh)}</td><td>−{fmt(b.cost - a.cost)}</td></tr>
+      </tbody></table>
+      <p>Investment ≈ <b>{fmt(inv)} {cur}</b> · simple payback <b>{fmt(inv / Math.max(b.cost - a.cost, 1e-6), 1)} yr</b></p></div>
+    <div className="card"><h3>Prioritised measures (savings ÷ cost ÷ effort)</h3>
+      <table><thead><tr><th></th><th>#</th><th>Measure</th><th>Where</th><th>m²</th><th>U → U'</th><th>W/m² → </th><th>kWh/yr saved</th><th>{cur}/yr saved</th><th>Cost {cur}</th><th>Payback</th><th>Effort</th></tr></thead><tbody>
+        {ms.map((m, i) => <tr key={m.id}><td><input type="checkbox" checked={sel.has(m.id)} onChange={() => { const n = new Set(sel); if (n.has(m.id)) n.delete(m.id); else n.add(m.id); setSel(n); }} /></td>
+          <td>{i + 1}</td><td>{m.label}</td><td>{m.room}</td><td>{fmt(m.area, 1)}</td><td>{fmt(m.uBefore, 2)} → {fmt(m.uAfter, 2)}</td><td>{fmt(m.uBefore * dt, 1)} → {fmt(m.uAfter * dt, 1)}</td>
+          <td>{fmt(m.kwhSaved)}</td><td><b>{fmt(m.moneySaved)}</b></td><td>{fmt(m.cost)}</td><td>{fmt(m.payback, 1)} yr</td><td>{'●'.repeat(m.effort)}{'○'.repeat(3 - m.effort)}</td></tr>)}
+      </tbody></table>
+      <p className="note">Costs are rough Norwegian installed prices (NOK/m²: attic 450, floor 900, external wall 1800, windows 8000, doors 7000). Insulation λ = 0.037 W/mK. Enova grants aren't included. Get local quotes before you decide.</p></div>
+  </>);
+}
