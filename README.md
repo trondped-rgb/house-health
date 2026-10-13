@@ -43,4 +43,4 @@ Per category: s = 100 · min(1, (U_ref / U_avg)^0.6), where U_ref is the TEK17 l
 New U for added insulation: U' = 1 / (1/U + d/λ), with λ = 0.037 W/mK (attic +20 cm, wall +10 cm, floor +10 cm). Windows and doors go to U 0.8. Savings = (U − U')·A·DD·24/1000 · price. Rough installed costs in NOK/m²: attic 450, floor 900, wall 1800, window 8000, door 7000 (converted at 11.5 NOK/EUR). Priority = savings / (cost · effort), with effort from 1 to 3. Enova support isn't included.
 
 ## Tech
-Vite + React + TypeScript with no runtime dependencies besides React. A ready-made GitHub Actions Pages workflow is in `docs/deploy.yml.example`. To use it, copy it to `.github/workflows/deploy.yml` and enable Pages (Settings → Pages → Source: GitHub Actions). That requires a public repo or a paid GitHub plan.
+Vite + React + TypeScript with no runtime dependencies besides React. A ready-made GitHub Actions Pages workflow is in `docs/deploy.yml.example`. Live site: https://trondped-rgb.github.io/house-health/ (published from the `gh-pages` branch: `npm run build`, then push `dist/` to `gh-pages`, e.g. `npx gh-pages -d dist`).
