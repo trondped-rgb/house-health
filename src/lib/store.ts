@@ -3,7 +3,7 @@ import type { House } from './physics';
 let n = 0; export const uid = () => Date.now().toString(36) + (n++).toString(36);
 export const demoHouse = (): House => ({
   name: 'Demo: 1975 detached house, Oslo',
-  settings: { tIn: 21, tOut: -20, degreeDays: 4000, location: 'Oslo', price: 1.5, currency: 'NOK' },
+  settings: { tIn: 21, tOut: 0, degreeDays: 4170, location: 'Oslo', price: 0.28, currency: 'EUR' },
   rooms: [
     { id: 'r1', name: 'Living room', surfaces: [
       { id: 's1', name: 'North wall', type: 'wall', area: 18, u: 0.4 }, { id: 's2', name: 'West wall', type: 'wall', area: 12, u: 0.4 },
@@ -13,7 +13,7 @@ export const demoHouse = (): House => ({
       { id: 's7', name: 'Attic ceiling', type: 'roof', area: 70, u: 0.35 } ] },
     { id: 'r3', name: 'Kitchen & hall', surfaces: [
       { id: 's8', name: 'External walls', type: 'wall', area: 25, u: 0.4 }, { id: 's9', name: 'Window', type: 'window', area: 2.5, u: 1.6 },
-      { id: 's10', name: 'Front door', type: 'door', area: 2, u: 2.5 }, { id: 's11', name: 'Slab floor', type: 'floor', area: 35, u: 0.4 } ] },
+      { id: 's10', name: 'Front door', type: 'door', area: 2, u: 2.2 }, { id: 's11', name: 'Slab floor', type: 'floor', area: 35, u: 0.4 } ] },
   ],
 });
 export function usePersisted<T>(key: string, init: () => T) {

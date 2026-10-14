@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import Viewer from './components/Viewer';
-import { LOCATIONS, PRICE_DEFAULT, U_PRESETS, U_REF, applyMeasures, flux, measures, score, surfaceScore, totals, annualKwh, type Currency, type House, type Surface, type SurfaceType } from './lib/physics';
+import { LOCATIONS, PRICE_DEFAULT, kGrade, U_PRESETS, U_REF, applyMeasures, flux, measures, score, surfaceScore, totals, annualKwh, type Currency, type House, type Surface, type SurfaceType } from './lib/physics';
 import { demoHouse, fmt, uid, usePersisted } from './lib/store';
 
 const TABS = ['Dashboard', 'Thermal camera', 'House profile', 'Fix first'] as const;
 const scoreColor = (s: number) => (s >= 80 ? '#2e9e5b' : s >= 55 ? '#d9a21b' : '#d64933');
 
 export default function App() {
-  const [house, setHouse] = usePersisted<House>('hh.house', demoHouse);
+  const [house, setHouse] = usePersisted<House>('hh.house.v2', demoHouse);
   const [tab, setTab] = usePersisted<(typeof TABS)[number]>('hh.tab', () => 'Dashboard');
   useEffect(() => { const h = decodeURIComponent(location.hash.slice(1)).toLowerCase(); const m = TABS.find((t) => t.toLowerCase().startsWith(h)); if (h && m) setTab(m); }, []); // eslint-disable-line
   return (
@@ -35,7 +35,7 @@ function Dashboard({ house, go }: { house: House; go: (t: (typeof TABS)[number])
     <div className="kpis">
       <div className="kpi score" style={{ borderColor: scoreColor(sc.total) }}><div className="kl">House-health score</div><div className="kv" style={{ color: scoreColor(sc.total) }}>{sc.total}<span>/100</span></div></div>
       <Kpi big label={`Avg. envelope heat loss @ ΔT ${house.settings.tIn - house.settings.tOut} K`} value={fmt(t.wpm2, 1)} unit="W/m²" />
-      <Kpi label="Design heat loss" value={fmt(t.watts / 1000, 2)} unit="kW" />
+      <Kpi label="Heat loss now" value={fmt(t.watts / 1000, 2)} unit="kW" />
       <Kpi label="Annual transmission energy" value={fmt(t.kwh)} unit="kWh/yr" />
       <Kpi label="Annual cost" value={fmt(t.cost)} unit={cur + '/yr'} />
     </div>
@@ -65,9 +65,9 @@ function Profile({ house, setHouse }: { house: House; setHouse: (h: House) => vo
   return (<>
     <div className="card"><h3>Climate & price</h3><div className="form">
       <label>House name<input value={house.name} onChange={(e) => setHouse({ ...house, name: e.target.value })} /></label>
-      <label>Location<select value={s.location} onChange={(e) => { const l = LOCATIONS[e.target.value]; setS({ location: e.target.value, degreeDays: l.dd, tOut: l.tOut }); }}>{Object.keys(LOCATIONS).map((l) => <option key={l}>{l}</option>)}</select></label>
+      <label>Location<select value={s.location} onChange={(e) => { const l = LOCATIONS[e.target.value]; setS({ location: e.target.value, degreeDays: l.dd }); }}>{Object.keys(LOCATIONS).map((l) => <option key={l}>{l}</option>)}</select></label>
       <label>Indoor °C<input type="number" value={s.tIn} onChange={(e) => setS({ tIn: +e.target.value })} /></label>
-      <label>Outdoor design °C<input type="number" value={s.tOut} onChange={(e) => setS({ tOut: +e.target.value })} /></label>
+      <label>Outdoor °C (now)<input type="number" value={s.tOut} onChange={(e) => setS({ tOut: +e.target.value })} /></label>
       <label>Degree-days (Kd/yr)<input type="number" value={s.degreeDays} onChange={(e) => setS({ degreeDays: +e.target.value, location: 'Custom' })} /></label>
       <label>Currency<select value={s.currency} onChange={(e) => { const c = e.target.value as Currency; setS({ currency: c, price: PRICE_DEFAULT[c] }); }}><option>NOK</option><option>EUR</option></select></label>
       <label>Price ({s.currency}/kWh)<input type="number" step="0.01" value={s.price} onChange={(e) => setS({ price: +e.target.value })} /></label>
@@ -85,7 +85,7 @@ function Profile({ house, setHouse }: { house: House; setHouse: (h: House) => vo
               <td><input className="num" type="number" step="0.5" value={sf.area} onChange={(e) => set({ area: +e.target.value })} /></td>
               <td><select value="" onChange={(e) => e.target.value && set({ u: +e.target.value })}><option value="">choose…</option>{U_PRESETS[sf.type].map((p) => <option key={p.label} value={p.u}>{p.label} ({p.u})</option>)}</select></td>
               <td><input className="num" type="number" step="0.01" value={sf.u} onChange={(e) => set({ u: +e.target.value })} /></td>
-              <td><b>{fmt(flux(sf.u, s), 1)}</b></td><td>{fmt(flux(sf.u, s) * sf.area)}</td><td>{fmt(annualKwh(sf.u, sf.area, s.degreeDays))}</td>
+              <td><b>{fmt(flux(sf.u, s), 1)}</b>{sf.type === 'window' && <div className="dim">k {kGrade(sf.u)}</div>}</td><td>{fmt(flux(sf.u, s) * sf.area)}</td><td>{fmt(annualKwh(sf.u, sf.area, s.degreeDays))}</td>
               <td style={{ color: scoreColor(surfaceScore(sf)) }}>{surfaceScore(sf)}</td>
               <td><button className="x" onClick={() => upd(r.id, (ss) => ss.filter((x) => x !== sf))}>×</button></td></tr>); })}
         </tbody></table>
@@ -103,7 +103,7 @@ function FixFirst({ house }: { house: House }) {
   const inv = chosen.reduce((x, m) => x + m.cost, 0);
   return (<>
     <div className="card"><h3>Before / after the selected retrofit</h3>
-      <table className="ba"><thead><tr><th></th><th>Score</th><th>W/m²</th><th>kW design</th><th>kWh/yr</th><th>{cur}/yr</th></tr></thead><tbody>
+      <table className="ba"><thead><tr><th></th><th>Score</th><th>W/m²</th><th>kW now</th><th>kWh/yr</th><th>{cur}/yr</th></tr></thead><tbody>
         <tr><td>Before</td><td>{sb}</td><td>{fmt(b.wpm2, 1)}</td><td>{fmt(b.watts / 1000, 2)}</td><td>{fmt(b.kwh)}</td><td>{fmt(b.cost)}</td></tr>
         <tr><td>After</td><td><b>{sa}</b></td><td><b>{fmt(a.wpm2, 1)}</b></td><td>{fmt(a.watts / 1000, 2)}</td><td>{fmt(a.kwh)}</td><td>{fmt(a.cost)}</td></tr>
         <tr className="dim"><td>Change</td><td>+{sa - sb}</td><td>−{fmt(b.wpm2 - a.wpm2, 1)}</td><td>−{fmt((b.watts - a.watts) / 1000, 2)}</td><td>−{fmt(b.kwh - a.kwh)}</td><td>−{fmt(b.cost - a.cost)}</td></tr>

@@ -1,7 +1,8 @@
 // Ironbow palette: black -> blue/purple -> red -> orange -> yellow -> white
+// Stops identical to Thermetric's ironbow.
 const STOPS: [number, number, number, number][] = [
-  [0.0, 0, 0, 0], [0.15, 30, 0, 90], [0.3, 110, 0, 150], [0.45, 190, 20, 120],
-  [0.6, 230, 70, 40], [0.75, 250, 140, 0], [0.9, 255, 220, 50], [1.0, 255, 255, 240],
+  [0, 0, 0, 4], [0.08, 18, 0, 48], [0.18, 64, 0, 112], [0.32, 132, 8, 128], [0.46, 188, 22, 58],
+  [0.6, 228, 72, 8], [0.74, 248, 148, 4], [0.86, 255, 214, 48], [1, 255, 252, 224],
 ];
 export function ironbow(t: number): [number, number, number] {
   t = Math.max(0, Math.min(1, t));
@@ -9,8 +10,10 @@ export function ironbow(t: number): [number, number, number] {
     const [p1, r1, g1, b1] = STOPS[i], [p0, r0, g0, b0] = STOPS[i - 1];
     if (t <= p1) { const f = (t - p0) / (p1 - p0); return [r0 + f * (r1 - r0), g0 + f * (g1 - g0), b0 + f * (b1 - b0)].map(Math.round) as [number, number, number]; }
   }
-  return [255, 255, 240];
+  return [255, 252, 224];
 }
+/** Thermetric mapping: Rec.709 luminance 0..1, then T = Tmin + L·(Tmax − Tmin). */
+export const luminance = (r: number, g: number, b: number) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 export function rainbow(t: number): [number, number, number] {
   t = Math.max(0, Math.min(1, t));
   const h = (1 - t) * 240, x = 1 - Math.abs(((h / 60) % 2) - 1);

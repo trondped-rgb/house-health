@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { colorToT, type PaletteName } from '../lib/palette';
+import { colorToT, luminance, type PaletteName } from '../lib/palette';
 import { imageFlux, H_INT, H_EXT, type Settings } from '../lib/physics';
 import { fmt, usePersisted } from '../lib/store';
 
 type Rect = { x0: number; y0: number; x1: number; y1: number };
 type Lock = { id: number; rect: Rect; tAvg: number; tMin: number; q: number; u: number };
-interface Cfg { tMin: number; tMax: number; palette: PaletteName; mode: 'interior' | 'exterior'; h: number }
+interface Cfg { tMin: number; tMax: number; palette: PaletteName; mapping: 'luminance' | 'palette'; mode: 'interior' | 'exterior'; h: number; solar: number }
 const SAMPLE = import.meta.env.BASE_URL + 'sample-thermal.png';
 
 export default function Viewer({ settings }: { settings: Settings }) {
   const cv = useRef<HTMLCanvasElement>(null), img = useRef<ImageData | null>(null);
   const [src, setSrc] = useState(SAMPLE), [loaded, setLoaded] = useState(0);
-  const [cfg, setCfg] = usePersisted<Cfg>('hh.viewer', () => ({ tMin: 8, tMax: 22, palette: 'ironbow', mode: 'interior', h: H_INT }));
+  const [cfg, setCfg] = usePersisted<Cfg>('hh.viewer.v2', () => ({ tMin: -2, tMax: 10, palette: 'ironbow', mapping: 'luminance', mode: 'exterior', h: H_EXT, solar: 0 }));
   const [view, setView] = useState({ s: 1, x: 0, y: 0 });
   const [tool, setTool] = useState<'pan' | 'point' | 'region'>('pan');
   const [hover, setHover] = useState<{ t: number; q: number } | null>(null);
@@ -30,12 +30,12 @@ export default function Viewer({ settings }: { settings: Settings }) {
 
   const tempAt = (x: number, y: number) => {
     const d = img.current!; x = Math.max(0, Math.min(d.width - 1, x | 0)); y = Math.max(0, Math.min(d.height - 1, y | 0));
-    const o = (y * d.width + x) * 4; return cfg.tMin + colorToT(d.data[o], d.data[o + 1], d.data[o + 2], cfg.palette) * (cfg.tMax - cfg.tMin);
+    const o = (y * d.width + x) * 4; const t = cfg.mapping === 'luminance' ? luminance(d.data[o], d.data[o + 1], d.data[o + 2]) : colorToT(d.data[o], d.data[o + 1], d.data[o + 2], cfg.palette); return cfg.tMin + t * (cfg.tMax - cfg.tMin);
   };
   const stats = (r: Rect) => {
     const x0 = Math.min(r.x0, r.x1), x1 = Math.max(r.x0, r.x1), y0 = Math.min(r.y0, r.y1), y1 = Math.max(r.y0, r.y1);
     const step = Math.max(1, Math.ceil(Math.max(x1 - x0, y1 - y0) / 120)); let sum = 0, n = 0, mn = Infinity, qs = 0;
-    for (let y = y0; y <= y1; y += step) for (let x = x0; x <= x1; x += step) { const t = tempAt(x, y); sum += t; n++; mn = Math.min(mn, t); qs += imageFlux(t, cfg.mode, settings, cfg.h).q; }
+    for (let y = y0; y <= y1; y += step) for (let x = x0; x <= x1; x += step) { const t = tempAt(x, y); sum += t; n++; mn = Math.min(mn, t); qs += imageFlux(t, cfg.mode, settings, cfg.h, cfg.solar).q; }
     const tAvg = sum / n, q = qs / n; return { tAvg, tMin: mn, q, u: q / Math.max(settings.tIn - settings.tOut, 0.1) };
   };
   const toImg = (cx: number, cy: number) => ({ x: (cx - view.x) / view.s, y: (cy - view.y) / view.s });
@@ -72,7 +72,7 @@ export default function Viewer({ settings }: { settings: Settings }) {
     if (ptrs.current.size === 1) { last.current = p; if (tool === 'region') { const q = toImg(p.x, p.y); setDrag({ x0: q.x | 0, y0: q.y | 0, x1: q.x | 0, y1: q.y | 0 }); } }
   };
   const onMove = (e: React.PointerEvent) => {
-    const p = pos(e); if (img.current) { const q = toImg(p.x, p.y); const d = img.current; if (q.x >= 0 && q.y >= 0 && q.x < d.width && q.y < d.height) { const t = tempAt(q.x, q.y); setHover({ t, q: imageFlux(t, cfg.mode, settings, cfg.h).q }); } else setHover(null); }
+    const p = pos(e); if (img.current) { const q = toImg(p.x, p.y); const d = img.current; if (q.x >= 0 && q.y >= 0 && q.x < d.width && q.y < d.height) { const t = tempAt(q.x, q.y); setHover({ t, q: imageFlux(t, cfg.mode, settings, cfg.h, cfg.solar).q }); } else setHover(null); }
     if (!ptrs.current.has(e.pointerId)) return; ptrs.current.set(e.pointerId, p);
     const ps = [...ptrs.current.values()];
     if (ps.length === 2) { // pinch
@@ -119,14 +119,16 @@ export default function Viewer({ settings }: { settings: Settings }) {
         <div className="card">
           <h3>Calibration</h3>
           <div className="form">
+            <label>Pixel → °C<select value={cfg.mapping} onChange={(e) => set({ mapping: e.target.value as Cfg['mapping'] })}><option value="luminance">Luminance (Thermetric)</option><option value="palette">Palette colour match</option></select></label>
             <label>Palette<select value={cfg.palette} onChange={(e) => set({ palette: e.target.value as PaletteName })}><option value="ironbow">Ironbow</option><option value="rainbow">Rainbow</option></select></label>
             <label>Scale min °C<input type="number" step="0.5" value={cfg.tMin} onChange={(e) => set({ tMin: +e.target.value })} /></label>
             <label>Scale max °C<input type="number" step="0.5" value={cfg.tMax} onChange={(e) => set({ tMax: +e.target.value })} /></label>
-            <label>Shot<select value={cfg.mode} onChange={(e) => { const m = e.target.value as Cfg['mode']; set({ mode: m, h: m === 'interior' ? H_INT : H_EXT }); }}><option value="interior">Interior surface</option><option value="exterior">Exterior surface</option></select></label>
+            <label>Shot<select value={cfg.mode} onChange={(e) => { const m = e.target.value as Cfg['mode']; set({ mode: m, h: m === 'interior' ? H_INT : H_EXT, solar: m === 'interior' ? 0 : cfg.solar }); }}><option value="interior">Interior surface</option><option value="exterior">Exterior surface</option></select></label>
             <label>h (W/m²K)<input type="number" step="0.1" value={cfg.h} onChange={(e) => set({ h: +e.target.value })} /></label>
+            {cfg.mode === 'exterior' && <label>Sun on wall I (W/m²)<input type="number" step="10" value={cfg.solar} onChange={(e) => set({ solar: +e.target.value })} /></label>}
             <label>T air in / out<span>{settings.tIn} / {settings.tOut} °C (from Profile)</span></label>
           </div>
-          <p className="note">{cfg.mode === 'interior' ? <>q = h<sub>i</sub>·(T<sub>air,in</sub> − T<sub>surface</sub>), h<sub>i</sub> ≈ 7.7 W/m²K (R<sub>si</sub> = 0.13, EN ISO 6946).</> : <>q = h<sub>e</sub>·(T<sub>surface</sub> − T<sub>out</sub>), h<sub>e</sub> ≈ 25 W/m²K (R<sub>se</sub> = 0.04). Very sensitive to wind and sky radiation; prefer interior shots.</>} Implied U = q/(T<sub>in</sub>−T<sub>out</sub>). Temperatures come from matching each pixel's colour to the palette between the min/max you set, so match these to the camera's scale bar. Emissivity, reflections and radiators (hot spots → 0 W/m²) aren't corrected. Treat values as indicative, ±30% or worse.</p>
+          <p className="note">{cfg.mode === 'interior' ? <>q = h<sub>i</sub>·(T<sub>air,in</sub> − T<sub>surface</sub>), h<sub>i</sub> ≈ 7.7 W/m²K (R<sub>si</sub> = 0.13, EN ISO 6946).</> : <>q = h·(T<sub>se</sub> − T<sub>e</sub>) − α·I, h = 25 W/m²K (ISO 6946), α = 0.5 (same as Thermetric). Wind, rain, sun and sky reflection move h and T<sub>se</sub>, so shoot overcast or after dusk.</>} Implied U = q/(T<sub>in</sub>−T<sub>out</sub>). {cfg.mapping === 'luminance' ? 'Pixel temperature is T = Tmin + L·(Tmax − Tmin), where L is the Rec.709 luminance (Thermetric method).' : 'Pixel temperature comes from the nearest palette colour between min and max.'} Set min and max to match the camera's scale bar. Surface temperatures are assumed to be emissivity-corrected by the camera (ε ≈ 0.95). Reflections and radiators (hot spots → 0 W/m²) aren't corrected. Treat values as indicative, ±30% or worse.</p>
         </div>
         <div className="card">
           <h3>Locked regions</h3>

@@ -5,21 +5,26 @@ export type Currency = 'NOK' | 'EUR';
 export interface Settings { tIn: number; tOut: number; degreeDays: number; location: string; price: number; currency: Currency }
 export interface House { name: string; rooms: Room[]; settings: Settings }
 
-/** Heating degree-days (Kd/year, base 17 °C, approx. normals) and winter design outdoor temperature. */
-export const LOCATIONS: Record<string, { dd: number; tOut: number }> = {
-  Oslo: { dd: 4000, tOut: -20 }, Bergen: { dd: 3300, tOut: -10 }, Stavanger: { dd: 3200, tOut: -9 },
-  Trondheim: { dd: 4400, tOut: -19 }, 'Tromsø': { dd: 5500, tOut: -17 }, Kristiansand: { dd: 3600, tOut: -15 },
-  Custom: { dd: 4000, tOut: -15 },
+/** Heating degree-days (Kd/year, base 17 °C), identical to Thermetric's climate table. */
+export const LOCATIONS: Record<string, { dd: number }> = {
+  Oslo: { dd: 4170 }, Bergen: { dd: 3280 }, Stavanger: { dd: 3210 }, Kristiansand: { dd: 3520 }, Trondheim: { dd: 4630 }, 'Tromsø': { dd: 5680 },
+  Stockholm: { dd: 3900 }, 'København': { dd: 2900 }, Helsinki: { dd: 4600 }, 'Reykjavík': { dd: 4800 }, London: { dd: 2100 }, Amsterdam: { dd: 2500 },
+  Bruxelles: { dd: 2400 }, Paris: { dd: 2300 }, Berlin: { dd: 3000 }, Wien: { dd: 2900 }, 'Zürich': { dd: 3200 }, Warszawa: { dd: 3400 }, Kyiv: { dd: 3600 },
+  Madrid: { dd: 1600 }, Roma: { dd: 1200 }, Vancouver: { dd: 2800 }, Custom: { dd: 4170 },
 };
-export const PRICE_DEFAULT: Record<Currency, number> = { NOK: 1.5, EUR: 0.13 };
+/** Thermetric default: 0.28 EUR/kWh. NOK value is House Health's own (Thermetric has no NOK price). */
+export const PRICE_DEFAULT: Record<Currency, number> = { EUR: 0.28, NOK: 1.5 };
+/** Window k-value grade, Thermetric scale. */
+export const kGrade = (k: number) => (k <= 0.5 ? 'very good' : k <= 1 ? 'good' : k <= 1.4 ? 'fair' : k <= 2.8 ? 'poor' : 'very poor');
 
 /** U-value presets (W/m²K). */
 export const U_PRESETS: Record<SurfaceType, { label: string; u: number }[]> = {
-  wall: [{ label: 'Pre-1950 timber, uninsulated', u: 1.0 }, { label: '1970s, 10 cm insulation', u: 0.4 }, { label: '1990s (TEK87), 15 cm', u: 0.25 }, { label: 'TEK17, 25 cm', u: 0.18 }, { label: 'Passive house', u: 0.12 }],
-  window: [{ label: 'Single glazing', u: 5.0 }, { label: 'Double (old, 1970-90)', u: 2.8 }, { label: 'Double low-E', u: 1.6 }, { label: 'Triple (TEK17)', u: 0.8 }],
+  // wall & window lists = Thermetric presets
+  wall: [{ label: 'Solid brick, pre-1940', u: 2.1 }, { label: 'Cavity, empty', u: 1.4 }, { label: 'Cavity, filled', u: 0.6 }, { label: 'Insulated masonry', u: 0.3 }, { label: 'Timber frame', u: 0.25 }, { label: 'Modern wall (2010+)', u: 0.18 }, { label: '1970s timber, 10 cm (HH)', u: 0.4 }],
+  window: [{ label: 'Single pane · very poor', u: 5.8 }, { label: 'Double glazing, air · poor', u: 2.8 }, { label: 'Low-e argon double · fair', u: 1.4 }, { label: 'Triple glazing · good', u: 0.8 }, { label: 'Passive house · very good', u: 0.5 }],
   roof: [{ label: 'Uninsulated attic', u: 1.5 }, { label: '1970s, 10 cm', u: 0.35 }, { label: '1990s, 20 cm', u: 0.2 }, { label: 'TEK17, 35 cm', u: 0.13 }],
   floor: [{ label: 'Uninsulated slab/crawl', u: 0.8 }, { label: '1970s, 5 cm', u: 0.4 }, { label: '1990s, 10 cm', u: 0.2 }, { label: 'TEK17', u: 0.1 }],
-  door: [{ label: 'Old wooden door', u: 2.5 }, { label: 'Insulated door', u: 1.2 }, { label: 'TEK17 door', u: 0.8 }],
+  door: [{ label: 'Door (Thermetric default)', u: 2.2 }, { label: 'Thermal bridge (Thermetric)', u: 3.5 }, { label: 'Insulated door', u: 1.2 }, { label: 'TEK17 door', u: 0.8 }],
 };
 /** Reference (TEK17 maximum) U-values used for scoring. */
 export const U_REF: Record<SurfaceType, number> = { wall: 0.18, window: 0.8, roof: 0.13, floor: 0.1, door: 0.8 };
@@ -78,11 +83,12 @@ export function applyMeasures(h: House, ms: Measure[]): House {
   return { ...h, rooms: h.rooms.map((r) => ({ ...r, surfaces: r.surfaces.map((s) => (m.has(s.id) ? { ...s, u: m.get(s.id)! } : s)) })) };
 }
 
-/** Thermal-image physics. Interior shot: q = h_i·(T_air,in − T_surface); h_i = 7.7 W/m²K (Rsi 0.13, EN ISO 6946).
- *  Exterior shot: q = h_e·(T_surface − T_out); h_e = 25 W/m²K (Rse 0.04) – crude, sensitive to wind/sky radiation.
- *  Implied U = q / (T_in − T_out). */
-export const H_INT = 7.7, H_EXT = 25;
-export function imageFlux(tSurf: number, mode: 'interior' | 'exterior', s: Settings, hOverride?: number) {
-  const q = mode === 'interior' ? (hOverride ?? H_INT) * (s.tIn - tSurf) : (hOverride ?? H_EXT) * (tSurf - s.tOut);
+/** Thermal-image physics (aligned with Thermetric).
+ *  Exterior shot (default): q = h·(Tse − Te) − α·I, h = 25 W/m²K (ISO 6946), α = 0.5, I = solar irradiance on the wall.
+ *  Interior shot (House Health extra): q = h_i·(T_air,in − T_si), h_i = 7.7 W/m²K (Rsi 0.13).
+ *  Implied U = q / (T_in − T_out). Surface temps are taken as already emissivity-corrected by the camera (ε ≈ 0.95). */
+export const H_INT = 7.7, H_EXT = 25, ALPHA_SOLAR = 0.5;
+export function imageFlux(tSurf: number, mode: 'interior' | 'exterior', s: Settings, hOverride?: number, solar = 0) {
+  const q = mode === 'interior' ? (hOverride ?? H_INT) * (s.tIn - tSurf) : (hOverride ?? H_EXT) * (tSurf - s.tOut) - ALPHA_SOLAR * solar;
   return { q: Math.max(0, q), u: Math.max(0, q) / Math.max(dT(s), 0.1) };
 }
