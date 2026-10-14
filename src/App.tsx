@@ -7,7 +7,7 @@ const TABS = ['Dashboard', 'Thermal camera', 'House profile', 'Fix first'] as co
 const scoreColor = (s: number) => (s >= 80 ? '#2e9e5b' : s >= 55 ? '#d9a21b' : '#d64933');
 
 export default function App() {
-  const [house, setHouse] = usePersisted<House>('hh.house.v2', demoHouse);
+  const [house, setHouse] = usePersisted<House>('hh.house.v3', demoHouse);
   const [tab, setTab] = usePersisted<(typeof TABS)[number]>('hh.tab', () => 'Dashboard');
   useEffect(() => { const h = decodeURIComponent(location.hash.slice(1)).toLowerCase(); const m = TABS.find((t) => t.toLowerCase().startsWith(h)); if (h && m) setTab(m); }, []); // eslint-disable-line
   return (
