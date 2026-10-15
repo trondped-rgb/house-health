@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { colorToT, luminance, type PaletteName } from '../lib/palette';
+import { colorToT, ironbow, luminance, type PaletteName } from '../lib/palette';
 import { imageFlux, plausibility, hExterior, H_INT, type House, type Settings } from '../lib/physics';
 import { correctEmissivity } from '../lib/construction';
 import SpotPanel from './SpotPanel';
+import { shareFile } from '../lib/share';
 import { spotU, type SpotInfo, type SpotResult } from '../lib/spots';
 import { fmt, usePersisted } from '../lib/store';
 
@@ -43,6 +44,34 @@ export default function Viewer({ settings, house, setHouse }: { settings: Settin
     if (!f) return; setMsg({ err: false, text: 'Loading image…' });
     try { const r = await persistImage(f); setCur({ key: r.key, src: r.data }); setMsg(r.stored ? { err: false, text: 'Image loaded.' } : { err: true, text: 'Image loaded, but it is too big to save in this browser. It will be gone after a reload.' }); }
     catch (e) { setMsg({ err: true, text: (e as Error).message }); }
+  };
+  const shareImage = async () => {
+    const d = img.current; if (!d) return; setMsg({ err: false, text: 'Rendering image…' });
+    const W = d.width, H = d.height, k = Math.max(1, W / 640), leg = Math.round(64 * k), c = document.createElement('canvas'); c.width = W; c.height = H + leg;
+    const g = c.getContext('2d')!; g.putImageData(d, 0, 0);
+    g.lineWidth = 2 * k; g.font = `bold ${Math.round(13 * k)}px sans-serif`; g.textBaseline = 'bottom';
+    for (const l of locks) {
+      const r = l.rect, q = spotResult(l).q, lab = `#${l.id} ${fmt(q, 1)} W/m²${l.info.type ? ' · ' + l.info.type : ''}`;
+      g.strokeStyle = '#0ff'; g.strokeRect(r.x0, r.y0, Math.max(r.x1 - r.x0, 2), Math.max(r.y1 - r.y0, 2));
+      const tw = g.measureText(lab).width + 8 * k, ty = Math.max(18 * k, r.y0 - 2 * k), tx = Math.min(r.x0, W - tw);
+      g.fillStyle = 'rgba(0,0,0,.75)'; g.fillRect(tx, ty - 17 * k, tw, 17 * k); g.fillStyle = '#0ff'; g.fillText(lab, tx + 4 * k, ty - 2 * k);
+    }
+    const avg = stats({ x0: 0, y0: 0, x1: W - 1, y1: H - 1 });
+    g.fillStyle = '#14202e'; g.fillRect(0, H, W, leg);
+    const gr = g.createLinearGradient(8 * k, 0, 168 * k, 0); for (let i = 0; i <= 10; i++) { const [r0, g0, b0] = ironbow(i / 10); gr.addColorStop(i / 10, `rgb(${r0},${g0},${b0})`); }
+    g.fillStyle = gr; g.fillRect(8 * k, H + 10 * k, 160 * k, 14 * k);
+    g.fillStyle = '#e8eef5'; g.font = `${Math.round(11 * k)}px sans-serif`; g.textBaseline = 'top';
+    g.fillText(`${cfg.tMin} °C`, 8 * k, H + 28 * k); g.textAlign = 'right'; g.fillText(`${cfg.tMax} °C`, 168 * k, H + 28 * k); g.textAlign = 'left';
+    g.fillText(`House Health · ${cfg.mode} · h ${fmt(hEff, 1)} W/m²K · in ${settings.tIn} °C / out ${settings.tOut} °C`, 180 * k, H + 8 * k);
+    g.fillText(`${new Date().toLocaleString()} · ${locks.length} spots${avg ? ` · image avg ${fmt(avg.q, 1)} W/m²` : ''}`, 180 * k, H + 26 * k);
+    g.fillText('Indicative estimate. Not a calibrated radiometric measurement.', 180 * k, H + 44 * k);
+    const blob = await new Promise<Blob | null>((ok) => c.toBlob(ok, 'image/jpeg', 0.9));
+    if (!blob) { setMsg({ err: true, text: 'Could not render the image.' }); return; }
+    const file = new File([blob], `house-health-thermal-${new Date().toISOString().slice(0, 10)}.jpg`, { type: 'image/jpeg' });
+    const summary = `House Health thermal survey: ${locks.length} spots. ` + locks.map((l) => `#${l.id} ${fmt(spotResult(l).q, 1)} W/m²`).join(', ') + ` (h ${fmt(hEff, 1)}, ${cfg.mode}, ΔT ${settings.tIn - settings.tOut} K).`;
+    (window as unknown as { __hhLastShare?: File }).__hhLastShare = file;
+    const r = await shareFile(file, 'House Health thermal image', summary);
+    setMsg(r ? { err: !r.ok, text: r.text } : null);
   };
   const pick = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; e.target.value = ''; loadFile(f); };
   const pasteBtn = async () => {
@@ -172,6 +201,7 @@ export default function Viewer({ settings, house, setHouse }: { settings: Settin
         <label className="file">📷 Camera only<input type="file" accept="image/*" capture="environment" data-testid="capture" onChange={pick} /></label>
         <button onClick={pasteBtn}>📋 Paste image</button>
         <button onClick={() => setCur({ key: 'sample', src: SAMPLE })}>Sample</button>
+        <button data-testid="share-image" onClick={shareImage}>📤 Share image</button>
       </div>
       <p className="hint" data-testid="photo-hint"><b>Take photo / Choose image</b> lets you use the camera, the gallery or files. Thermal apps (FLIR, Topdon, Seek…) usually save to the gallery, so pick it from there. <b>Camera only</b> opens the phone camera directly. <b>Paste</b> works for an image you copied. On Android Chrome, use “Add to Home screen” and House Health will appear in the <b>Share</b> menu of other apps (not supported on iPhone).</p>
       {msg && <div className={'photomsg ' + (msg.err ? 'err' : 'ok')} role="status" data-testid="photo-msg">{msg.text}</div>}

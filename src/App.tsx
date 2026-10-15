@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { download, shareFile } from './lib/share';
 import Viewer from './components/Viewer';
 import { LOCATIONS, PRICE_DEFAULT, kGrade, CO2_PRESETS, co2Factor, type Measure, U_PRESETS, U_REF, applyMeasures, flux, measures, score, surfaceScore, totals, annualKwh, type Currency, type House, type Surface, type SurfaceType } from './lib/physics';
 import { demoHouse, fmt, uid, usePersisted } from './lib/store';
@@ -152,9 +153,14 @@ function FixFirst({ house, setHouse, selIds, setSelIds }: { house: House; setHou
 }
 
 function Report({ house, selIds }: { house: House; selIds: string[] | null }) {
-  const pl = plan(house, selIds), sc = score(house), s = house.settings, t = pl.b;
+  const pl = plan(house, selIds), sc = score(house), s = house.settings, t = pl.b, [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const pdf = async () => { setMsg({ ok: true, text: 'Generating PDF…' }); const { buildReportPdf } = await import('./lib/pdf'); const f = await buildReportPdf(house, pl, sc); (window as unknown as { __hhLastShare?: File }).__hhLastShare = f; return f; };
+  const summary = () => `House Health: score ${sc.total}/100, ${fmt(t.wpm2, 1)} W/m², ${fmt(t.kwh)} kWh/yr, ${fmt(t.cost)} ${s.currency}/yr. Selected retrofit saves ${fmt(t.cost - pl.a.cost)} ${s.currency}/yr and ${fmt(pl.co2Year, 2)} t CO₂e/yr (${fmt(pl.co2Life, 1)} t over its lifetime).`;
+  const onShare = async () => { try { const f = await pdf(); setMsg(await shareFile(f, 'House Health report', summary())); } catch (e) { setMsg({ ok: false, text: 'Could not create the PDF: ' + (e as Error).message }); } };
+  const onDownload = async () => { try { const f = await pdf(); download(f); setMsg({ ok: true, text: `Downloaded ${f.name}.` }); } catch (e) { setMsg({ ok: false, text: 'Could not create the PDF: ' + (e as Error).message }); } };
   return <div className="report" data-testid="report">
-    <div className="noprint"><button onClick={() => window.print()}>🖨 Print / save as PDF</button></div>
+    <div className="noprint toolbar"><button className="on" data-testid="share-report" onClick={onShare}>📤 Share report (PDF)</button><button data-testid="download-pdf" onClick={onDownload}>⬇ Download PDF</button><button onClick={() => window.print()}>🖨 Print</button></div>
+    {msg && <div className={'noprint photomsg ' + (msg.ok ? 'ok' : 'err')} role="status" data-testid="report-msg">{msg.text}</div>}
     <h1>House Health report</h1>
     <p className="dim">{house.name} · {s.location}, {s.degreeDays} degree-days · indoor {s.tIn} °C / outdoor {s.tOut} °C · {s.price} {s.currency}/kWh · {fmt(co2Factor(s) * 1000, 1)} g CO₂e/kWh · {new Date().toLocaleDateString()}</p>
     <div className="kpis"><Kpi label="Health score" value={String(sc.total)} unit="/100" /><Kpi big label="Avg. envelope heat loss" value={fmt(t.wpm2, 1)} unit="W/m²" /><Kpi label="Annual energy" value={fmt(t.kwh)} unit="kWh/yr" /><Kpi label="Annual cost" value={fmt(t.cost)} unit={s.currency + '/yr'} /><Kpi label="Emissions" value={fmt(t.kwh * co2Factor(s) / 1000, 2)} unit="t CO₂e/yr" /></div>

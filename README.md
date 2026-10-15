@@ -16,6 +16,11 @@ Deep links: `#thermal`, `#house`, `#fix`, `#dashboard`, `#report`.
 - **House profile**: rooms → surfaces (wall/window/roof/floor/door), area, U-value presets (Norwegian building eras → TEK17), indoor and design outdoor temperature, degree-days by city, and price in NOK (default 1.50/kWh) or EUR.
 - **Fix first**: retrofit measures ranked by savings ÷ cost ÷ effort, with a before/after scenario for the measures you select (score, W/m², kW, kWh, cost, investment, payback).
 
+## Sharing out (v0.5)
+- **Thermal view → 📤 Share image**: renders the full-resolution thermal image with the tagged spots, their W/m² labels and a legend bar (ironbow scale min/max, shot type, h, indoor/outdoor temperature, date, image average). It produces a JPEG and shares it with a short text summary.
+- **Report → 📤 Share report (PDF)** and **⬇ Download PDF**: an A4-landscape PDF (jsPDF + jspdf-autotable, lazy-loaded) with key figures, score breakdown, before/after, the selected measures and the climate account.
+- Sharing uses `navigator.share({ files })` when `navigator.canShare({ files })` allows it, as on Android Chrome. If only text sharing is supported, the file is downloaded and the summary is shared. If sharing isn't supported at all, the file is downloaded and the summary and link are copied to the clipboard. Cancelling the share sheet (AbortError) does nothing.
+
 ## Getting photos in (v0.4)
 - **Take photo / Choose image** (`<input type="file" accept="image/*">` with no `capture`): iOS and Android offer camera, gallery and files. Thermal-camera apps (FLIR, Topdon, Seek…) save to the gallery, so pick the image from there.
 - **Camera only**: the same input with `capture="environment"`, which opens the rear camera directly.
