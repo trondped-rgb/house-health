@@ -2,7 +2,18 @@ export type SurfaceType = 'wall' | 'window' | 'roof' | 'floor' | 'door';
 export interface Surface { id: string; name: string; type: SurfaceType; area: number; u: number }
 export interface Room { id: string; name: string; surfaces: Surface[] }
 export type Currency = 'NOK' | 'EUR';
-export interface Settings { tIn: number; tOut: number; degreeDays: number; location: string; price: number; currency: Currency }
+export interface Settings { tIn: number; tOut: number; degreeDays: number; location: string; price: number; currency: Currency; co2?: number; co2Preset?: string }
+/** Emission factors, kg CO₂e per kWh delivered. Only the NVE figure is a verified published value; the rest are rounded assumptions (see README). */
+export const CO2_PRESETS: { id: string; label: string; kg: number }[] = [
+  { id: 'no-nve', label: 'Norwegian electricity, physically delivered (NVE 2024: 11.9 g)', kg: 0.0119 },
+  { id: 'nordic', label: 'Nordic electricity mix (approx. assumption)', kg: 0.09 },
+  { id: 'ns3720', label: 'European long-term scenario, NS 3720-style (approx. 0.13)', kg: 0.13 },
+  { id: 'eu', label: 'EU average grid mix (approx. assumption)', kg: 0.27 },
+  { id: 'oil', label: 'Heating oil, per kWh fuel (approx. 0.27)', kg: 0.27 },
+  { id: 'dh', label: 'District heating, Norway avg (approx. assumption)', kg: 0.1 },
+  { id: 'custom', label: 'Custom', kg: 0.0119 },
+];
+export const co2Factor = (s: Settings) => s.co2 ?? CO2_PRESETS[0].kg;
 export interface House { name: string; rooms: Room[]; settings: Settings }
 
 /** Heating degree-days (Kd/year, base 17 °C), identical to Thermetric's climate table. */
@@ -57,15 +68,16 @@ export function score(h: House) {
   return { total, parts };
 }
 
-export interface Measure { id: string; surfaceId: string; label: string; room: string; type: SurfaceType; uBefore: number; uAfter: number; area: number; cost: number; kwhSaved: number; moneySaved: number; payback: number; effort: 1 | 2 | 3; priority: number }
+export interface Measure { life: number; co2Year: number; co2Life: number; id: string; surfaceId: string; label: string; room: string; type: SurfaceType; uBefore: number; uAfter: number; area: number; cost: number; kwhSaved: number; moneySaved: number; payback: number; effort: 1 | 2 | 3; priority: number }
 /** Retrofit catalogue: new U and installed cost per m² (NOK, rough 2026 Norway). λ insulation = 0.037 W/mK. */
 const addIns = (u: number, cm: number) => 1 / (1 / u + cm / 100 / 0.037);
-const CATALOG: Record<SurfaceType, { label: string; uAfter: (u: number) => number; costM2: number; effort: 1 | 2 | 3 }> = {
-  roof: { label: 'Blow in +20 cm attic insulation', uAfter: (u) => addIns(u, 20), costM2: 450, effort: 1 },
-  wall: { label: 'Add 10 cm exterior insulation + new cladding', uAfter: (u) => addIns(u, 10), costM2: 1800, effort: 3 },
-  floor: { label: 'Insulate floor/crawlspace +10 cm', uAfter: (u) => addIns(u, 10), costM2: 900, effort: 2 },
-  window: { label: 'Replace with triple glazing (U 0.8)', uAfter: () => 0.8, costM2: 8000, effort: 2 },
-  door: { label: 'Replace with insulated door (U 0.8)', uAfter: () => 0.8, costM2: 7000, effort: 1 },
+/** Assumed service life (years) used for lifetime CO₂: insulation 40, windows/doors 30. */
+const CATALOG: Record<SurfaceType, { label: string; uAfter: (u: number) => number; costM2: number; effort: 1 | 2 | 3; life: number }> = {
+  roof: { label: 'Blow in +20 cm attic insulation', uAfter: (u) => addIns(u, 20), costM2: 450, effort: 1, life: 40 },
+  wall: { label: 'Add 10 cm exterior insulation + new cladding', uAfter: (u) => addIns(u, 10), costM2: 1800, effort: 3, life: 40 },
+  floor: { label: 'Insulate floor/crawlspace +10 cm', uAfter: (u) => addIns(u, 10), costM2: 900, effort: 2, life: 40 },
+  window: { label: 'Replace with triple glazing (U 0.8)', uAfter: () => 0.8, costM2: 8000, effort: 2, life: 30 },
+  door: { label: 'Replace with insulated door (U 0.8)', uAfter: () => 0.8, costM2: 7000, effort: 1, life: 30 },
 };
 export const NOK_PER_EUR = 11.5;
 export function measures(h: House): Measure[] {
@@ -74,7 +86,8 @@ export function measures(h: House): Measure[] {
     const c = CATALOG[s.type], uAfter = Math.min(s.u, c.uAfter(s.u));
     if (s.u - uAfter < 0.03 || s.u <= U_REF[s.type] * 1.05) continue;
     const kwhSaved = annualKwh(s.u - uAfter, s.area, h.settings.degreeDays), moneySaved = kwhSaved * h.settings.price, cost = c.costM2 * s.area * fx;
-    out.push({ id: 'm-' + s.id, surfaceId: s.id, label: c.label, room: r.name, type: s.type, uBefore: s.u, uAfter, area: s.area, cost, kwhSaved, moneySaved, payback: cost / Math.max(moneySaved, 1e-6), effort: c.effort, priority: moneySaved / (cost * c.effort) });
+    const co2Year = (kwhSaved * co2Factor(h.settings)) / 1000;
+    out.push({ life: c.life, co2Year, co2Life: co2Year * c.life, id: 'm-' + s.id, surfaceId: s.id, label: c.label, room: r.name, type: s.type, uBefore: s.u, uAfter, area: s.area, cost, kwhSaved, moneySaved, payback: cost / Math.max(moneySaved, 1e-6), effort: c.effort, priority: moneySaved / (cost * c.effort) });
   }
   return out.sort((a, b) => b.priority - a.priority);
 }
@@ -87,8 +100,21 @@ export function applyMeasures(h: House, ms: Measure[]): House {
  *  Exterior shot (default): q = h·(Tse − Te) − α·I, h = 25 W/m²K (ISO 6946), α = 0.5, I = solar irradiance on the wall.
  *  Interior shot (House Health extra): q = h_i·(T_air,in − T_si), h_i = 7.7 W/m²K (Rsi 0.13).
  *  Implied U = q / (T_in − T_out). Surface temps are taken as already emissivity-corrected by the camera (ε ≈ 0.95). */
-export const H_INT = 7.7, H_EXT = 25, ALPHA_SOLAR = 0.5;
+export const H_INT = 7.7, H_EXT = 25, ALPHA_SOLAR = 0.5, SIGMA = 5.67e-8;
+/** Exterior surface coefficient for the actual survey conditions, ISO 6946 Annex C:
+ *  h_se = h_c + h_r, h_c = 4 + 4·v (wind m/s), h_r = ε·4σT_m³ (≈4.4 W/m²K at 0 °C).
+ *  The design value h = 25 (R_se 0.04) corresponds to v = 4 m/s. Calm survey nights (v ≈ 0.5) give h ≈ 10. */
+export const hExterior = (wind: number, eps = 0.95, tm = 0) => 4 + 4 * Math.max(0, wind) + eps * 4 * SIGMA * (tm + 273.15) ** 3;
 export function imageFlux(tSurf: number, mode: 'interior' | 'exterior', s: Settings, hOverride?: number, solar = 0) {
-  const q = mode === 'interior' ? (hOverride ?? H_INT) * (s.tIn - tSurf) : (hOverride ?? H_EXT) * (tSurf - s.tOut) - ALPHA_SOLAR * solar;
-  return { q: Math.max(0, q), u: Math.max(0, q) / Math.max(dT(s), 0.1) };
+  const raw = mode === 'interior' ? (hOverride ?? H_INT) * (s.tIn - tSurf) : (hOverride ?? H_EXT) * (tSurf - s.tOut) - ALPHA_SOLAR * solar;
+  return { q: Math.max(0, raw), raw, u: Math.max(0, raw) / Math.max(dT(s), 0.1) };
+}
+/** Plausibility hint for a thermal reading. tNorm = position on the camera scale (0..1). */
+export function plausibility(raw: number, s: Settings, tNorm?: number): string | null {
+  const d = dT(s);
+  if (tNorm != null && (tNorm <= 0.005 || tNorm >= 0.995)) return 'At the edge of the camera scale (clipped). Widen min/max.';
+  if (raw < -1) return 'Surface is on the wrong side of the air temperature (sky radiation, sun, or a wrong shot type). Shown as 0.';
+  if (d < 10) return `ΔT is only ${d.toFixed(0)} K. Thermography needs ≥10 K for reliable W/m².`;
+  if (raw / Math.max(d, 0.1) > 6) return 'Implied U > 6 W/m²K is implausible. Check the scale, h, sun, and that the radiator is not in view.';
+  return null;
 }
