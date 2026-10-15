@@ -3,7 +3,7 @@ import { colorToT, ironbow, luminance, type PaletteName } from '../lib/palette';
 import { imageFlux, plausibility, hExterior, H_INT, type House, type Settings } from '../lib/physics';
 import { correctEmissivity } from '../lib/construction';
 import SpotPanel from './SpotPanel';
-import { shareFile } from '../lib/share';
+import { localDateStamp, shareFile } from '../lib/share';
 import { authorLine, getAuthor } from '../lib/author';
 import { spotU, type SpotInfo, type SpotResult } from '../lib/spots';
 import { fmt, usePersisted } from '../lib/store';
@@ -69,7 +69,7 @@ export default function Viewer({ settings, house, setHouse }: { settings: Settin
     g.font = `bold ${Math.round(11 * k)}px sans-serif`; g.fillText(`Utarbeidet av: ${authorLine(getAuthor())} · ${new Date().toLocaleDateString('nb-NO')}`, 8 * k, H + 63 * k);
     const blob = await new Promise<Blob | null>((ok) => c.toBlob(ok, 'image/jpeg', 0.9));
     if (!blob) { setMsg({ err: true, text: 'Could not render the image.' }); return; }
-    const file = new File([blob], `house-health-thermal-${new Date().toISOString().slice(0, 10)}.jpg`, { type: 'image/jpeg' });
+    const file = new File([blob], `house-health-thermal-${localDateStamp()}.jpg`, { type: 'image/jpeg' });
     const summary = `House Health thermal survey: ${locks.length} spots. ` + locks.map((l) => `#${l.id} ${fmt(spotResult(l).q, 1)} W/m²`).join(', ') + ` (h ${fmt(hEff, 1)}, ${cfg.mode}, ΔT ${settings.tIn - settings.tOut} K).`;
     (window as unknown as { __hhLastShare?: File }).__hhLastShare = file;
     const r = await shareFile(file, 'House Health thermal image', summary);

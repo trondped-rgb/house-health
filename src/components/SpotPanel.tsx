@@ -12,7 +12,8 @@ export default function SpotPanel({ id, info, res, onChange, onClose, onDelete, 
 }) {
   const set = (p: Partial<SpotInfo>) => onChange({ ...info, ...p });
   // the tap that opened the panel can fire a follow-up 'click' on whatever button now sits under the finger — swallow it
-  const opened = useRef(Date.now()), guard = (e: React.SyntheticEvent) => { if (Date.now() - opened.current < 450) { e.preventDefault(); e.stopPropagation(); } };
+  // Only action controls are guarded; close (data-noguard) always works on the first tap.
+  const opened = useRef(Date.now()), guard = (e: React.SyntheticEvent) => { if ((e.target as Element).closest('[data-noguard]')) return; if (Date.now() - opened.current < 450) { e.preventDefault(); e.stopPropagation(); } };
   const [room, setRoom] = useState(house.rooms[0]?.id ?? '__new'), [added, setAdded] = useState('');
   const U = spotU(info), lu = layersU(info.layers, info.type ?? 'wall');
   const dT = res ? res.tIn - res.tOut : 0, expected = U ? U.u * dT : null, implied = res && dT > 0.1 ? res.q / dT : null;
@@ -27,7 +28,7 @@ export default function SpotPanel({ id, info, res, onChange, onClose, onDelete, 
   };
   return (
     <div className="spotpanel" onClickCapture={guard} role="dialog" aria-label={`Spot ${id}`} data-testid="spot-panel">
-      <div className="sph"><b>Spot #{id}</b><span className="dim">all fields optional</span><button className="x" onClick={onClose} aria-label="Close">✕</button></div>
+      <div className="sph"><b>Spot #{id}</b><span className="dim">all fields optional</span><button className="x" data-noguard onClick={onClose} aria-label="Close">✕</button></div>
       <div className="spres" data-testid="spot-result">
         <div><span className="kl">Measured</span><b className="kvs">{res ? fmt(res.q, 1) : '–'}</b> W/m²</div>
         <div><span className="kl">Expected U·ΔT</span><b className="kvs">{expected != null ? fmt(expected, 1) : '–'}</b> W/m²</div>

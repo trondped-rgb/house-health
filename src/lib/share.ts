@@ -1,3 +1,5 @@
+/** YYYY-MM-DD in the device's local time zone (not UTC). */
+export const localDateStamp = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 /** Share a generated file via the Web Share API, with fallbacks. Returns a user-facing status or null (cancelled). */
 export function download(file: File) {
   const u = URL.createObjectURL(file), a = document.createElement('a'); a.href = u; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 10000);
