@@ -16,6 +16,13 @@ Deep links: `#thermal`, `#house`, `#fix`, `#dashboard`, `#report`.
 - **House profile**: rooms → surfaces (wall/window/roof/floor/door), area, U-value presets (Norwegian building eras → TEK17), indoor and design outdoor temperature, degree-days by city, and price in NOK (default 1.50/kWh) or EUR.
 - **Fix first**: retrofit measures ranked by savings ÷ cost ÷ effort, with a before/after scenario for the measures you select (score, W/m², kW, kWh, cost, investment, payback).
 
+## Getting photos in (v0.4)
+- **Take photo / Choose image** (`<input type="file" accept="image/*">` with no `capture`): iOS and Android offer camera, gallery and files. Thermal-camera apps (FLIR, Topdon, Seek…) save to the gallery, so pick the image from there.
+- **Camera only**: the same input with `capture="environment"`, which opens the rear camera directly.
+- **Paste image**: uses the clipboard button, or Ctrl+V / long-press → Paste anywhere on the page.
+- **Share into House Health** (Web Share Target, `manifest.webmanifest` + `sw.js`, scope `/house-health/`): the service worker receives the POSTed file, stores it in Cache Storage and redirects to `?shared=1#thermal`, where the image loads. This only works after **Add to Home screen** on Android Chrome or Edge. iOS/Safari doesn't support share targets.
+- Images are decoded with `createImageBitmap`, falling back to `<img>`, and downscaled to 1280 px. HEIC works only where the browser can decode it (Safari). Elsewhere a clear message suggests JPEG ("Most Compatible"). Files over 60 MB and non-images get a visible error. The input is reset after each pick, so picking the same file twice works.
+
 ## v0.3 changes
 
 ### Thermal W/m² audit and fix

@@ -1,0 +1,20 @@
+{
+  "name": "House Health · W/m² heat loss",
+  "short_name": "House Health",
+  "id": "/house-health/",
+  "start_url": "/house-health/#thermal",
+  "scope": "/house-health/",
+  "display": "standalone",
+  "background_color": "#f3f5f7",
+  "theme_color": "#14202e",
+  "icons": [
+    { "src": "/house-health/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/house-health/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "share_target": {
+    "action": "/house-health/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": { "title": "title", "text": "text", "files": [{ "name": "image", "accept": ["image/*", ".jpg", ".jpeg", ".png", ".webp", ".heic"] }] }
+  }
+}

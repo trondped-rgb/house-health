@@ -9,13 +9,26 @@ import { fmt, usePersisted } from '../lib/store';
 type Rect = { x0: number; y0: number; x1: number; y1: number };
 type Spot = { id: number; img: string; rect: Rect; info: SpotInfo; last?: SpotResult };
 const IMG_KEY = 'hh.image';
-/** Downscale an uploaded/captured photo and keep it in localStorage so spots survive reloads. */
-function persistImage(file: File): Promise<string> {
-  return new Promise((ok) => { const u = URL.createObjectURL(file), im = new Image(); im.onload = () => {
-    const k = Math.min(1, 1280 / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
-    c.getContext('2d')!.drawImage(im, 0, 0, c.width, c.height); const d = c.toDataURL('image/jpeg', 0.85); URL.revokeObjectURL(u);
-    try { localStorage.setItem(IMG_KEY, JSON.stringify({ key: 'upload:' + Date.now(), data: d })); } catch { /* quota: keep in memory only */ }
-    ok(d); }; im.src = u; });
+/** Decode any picked/shared/pasted image (JPEG/PNG/WebP, HEIC where the browser can), downscale to ≤1280 px,
+ *  and keep it in localStorage so spots survive reloads. Throws a readable Error on failure. */
+async function persistImage(file: Blob): Promise<{ key: string; data: string; stored: boolean }> {
+  if (file.type && !file.type.startsWith('image/')) throw new Error(`That file is ${file.type}, not an image.`);
+  if (file.size > 60e6) throw new Error(`The image is too large (${Math.round(file.size / 1e6)} MB). Pick one under 60 MB.`);
+  let src: ImageBitmap | HTMLImageElement | null = null, url = '';
+  try { src = await createImageBitmap(file); } catch {
+    url = URL.createObjectURL(file);
+    src = await new Promise<HTMLImageElement | null>((ok) => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = url; });
+  }
+  if (!src || !src.width) {
+    if (url) URL.revokeObjectURL(url);
+    const heic = /hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test((file as File).name ?? '');
+    throw new Error(heic ? 'This browser cannot decode HEIC photos. On iPhone, set Settings → Camera → Formats → Most Compatible, or share/export the photo as JPEG and try again.' : 'Could not read that image. Try exporting it as JPEG or PNG from the camera app.');
+  }
+  const k = Math.min(1, 1280 / Math.max(src.width, src.height)), c = document.createElement('canvas'); c.width = Math.round(src.width * k); c.height = Math.round(src.height * k);
+  c.getContext('2d')!.drawImage(src, 0, 0, c.width, c.height); if ('close' in src) src.close(); if (url) URL.revokeObjectURL(url);
+  const data = c.toDataURL('image/jpeg', 0.88), key = 'upload:' + Date.now(); let stored = true;
+  try { localStorage.setItem(IMG_KEY, JSON.stringify({ key, data })); } catch { stored = false; }
+  return { key, data, stored };
 }
 interface Cfg { tMin: number; tMax: number; palette: PaletteName; mapping: 'luminance' | 'palette'; mode: 'interior' | 'exterior'; hMode: 'auto' | 'manual'; h: number; wind: number; solar: number }
 const SAMPLE = import.meta.env.BASE_URL + 'sample-thermal.png';
@@ -25,7 +38,23 @@ export default function Viewer({ settings, house, setHouse }: { settings: Settin
   const [cur, setCur] = useState<{ key: string; src: string }>(() => { try { const j = JSON.parse(localStorage.getItem(IMG_KEY) || 'null'); if (j?.data && localStorage.getItem('hh.imgsel') === j.key) return { key: j.key, src: j.data }; } catch { /* ignore */ } return { key: 'sample', src: SAMPLE }; });
   const src = cur.src, [loaded, setLoaded] = useState(0);
   useEffect(() => { localStorage.setItem('hh.imgsel', cur.key); }, [cur.key]);
-  const loadFile = async (f?: File) => { if (!f) return; const d = await persistImage(f); let key = 'upload:' + Date.now(); try { key = JSON.parse(localStorage.getItem(IMG_KEY)!).key; } catch { /* in-memory */ } setCur({ key, src: d }); };
+  const [msg, setMsg] = useState<{ err: boolean; text: string } | null>(null);
+  const loadFile = async (f?: Blob | null) => {
+    if (!f) return; setMsg({ err: false, text: 'Loading image…' });
+    try { const r = await persistImage(f); setCur({ key: r.key, src: r.data }); setMsg(r.stored ? { err: false, text: 'Image loaded.' } : { err: true, text: 'Image loaded, but it is too big to save in this browser. It will be gone after a reload.' }); }
+    catch (e) { setMsg({ err: true, text: (e as Error).message }); }
+  };
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => { const f = e.target.files?.[0]; e.target.value = ''; loadFile(f); };
+  const pasteBtn = async () => {
+    try { for (const it of await navigator.clipboard.read()) { const t = it.types.find((x) => x.startsWith('image/')); if (t) { loadFile(await it.getType(t)); return; } } setMsg({ err: true, text: 'No image on the clipboard. Copy an image first, or long-press here and choose Paste.' }); }
+    catch { setMsg({ err: true, text: 'This browser blocks clipboard access from a button. Long-press / Ctrl+V anywhere on this page to paste instead.' }); }
+  };
+  useEffect(() => { const h = (e: ClipboardEvent) => { const f = [...(e.clipboardData?.files ?? [])].find((x) => x.type.startsWith('image/')); if (f) { e.preventDefault(); loadFile(f); } }; window.addEventListener('paste', h); return () => window.removeEventListener('paste', h); }, []);  
+  // Web Share Target: the service worker stores the shared file in Cache Storage and redirects to ?shared=1#thermal
+  useEffect(() => { if (!new URLSearchParams(location.search).has('shared')) return; (async () => {
+    try { const c = await caches.open('hh-share'), r = await c.match('shared-image'); if (r) { await loadFile(await r.blob()); await c.delete('shared-image'); } else setMsg({ err: true, text: 'The shared image did not arrive. Try “Choose image” instead.' }); }
+    catch { setMsg({ err: true, text: 'Could not read the shared image.' }); }
+    history.replaceState(null, '', location.pathname + '#thermal'); })(); }, []);  
   const [cfg, setCfg] = usePersisted<Cfg>('hh.viewer.v3', () => ({ tMin: -2, tMax: 10, palette: 'ironbow', mapping: 'palette', mode: 'exterior', hMode: 'auto', h: 10, wind: 0.5, solar: 0 }));
   /** Effective film coefficient used everywhere below. */
   const hEff = cfg.hMode === 'manual' ? cfg.h : cfg.mode === 'interior' ? H_INT : hExterior(cfg.wind, 0.95, settings.tOut);
@@ -139,10 +168,13 @@ export default function Viewer({ settings, house, setHouse }: { settings: Settin
         <button onClick={() => zoomAt(cv.current!.width / 2, cv.current!.height / 2, 1.5)}>＋</button>
         <button onClick={() => zoomAt(cv.current!.width / 2, cv.current!.height / 2, 1 / 1.5)}>－</button>
         <button onClick={fit}>Fit</button>
-        <label className="file">📷 Take photo <input type="file" accept="image/*" capture="environment" data-testid="capture" onChange={(e) => loadFile(e.target.files?.[0])} /></label>
-        <label className="file">Upload… <input type="file" accept="image/*" data-testid="upload" onChange={(e) => loadFile(e.target.files?.[0])} /></label>
+        <label className="file primary">🖼 Take photo / Choose image<input type="file" accept="image/*" data-testid="upload" onChange={pick} /></label>
+        <label className="file">📷 Camera only<input type="file" accept="image/*" capture="environment" data-testid="capture" onChange={pick} /></label>
+        <button onClick={pasteBtn}>📋 Paste image</button>
         <button onClick={() => setCur({ key: 'sample', src: SAMPLE })}>Sample</button>
       </div>
+      <p className="hint" data-testid="photo-hint"><b>Take photo / Choose image</b> lets you use the camera, the gallery or files. Thermal apps (FLIR, Topdon, Seek…) usually save to the gallery, so pick it from there. <b>Camera only</b> opens the phone camera directly. <b>Paste</b> works for an image you copied. On Android Chrome, use “Add to Home screen” and House Health will appear in the <b>Share</b> menu of other apps (not supported on iPhone).</p>
+      {msg && <div className={'photomsg ' + (msg.err ? 'err' : 'ok')} role="status" data-testid="photo-msg">{msg.text}</div>}
       <div className="vwrap">
         {(() => { const sp = open != null ? locks.find((x) => x.id === open) : undefined; return sp && img.current ? <SpotPanel key={sp.id} id={sp.id} info={sp.info} res={spotResult(sp)} house={house} setHouse={setHouse}
           onChange={(info) => setSpots(spots.map((x) => (x.id === sp.id ? { ...x, info } : x)))} onClose={() => setOpen(null)} onDelete={() => { setSpots(spots.filter((x) => x.id !== sp.id)); setOpen(null); }} /> : null; })()}
