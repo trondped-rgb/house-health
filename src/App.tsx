@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { download, shareFile } from './lib/share';
+import { authorLine, useAuthor, type Author } from './lib/author';
 import Viewer from './components/Viewer';
 import { LOCATIONS, PRICE_DEFAULT, kGrade, CO2_PRESETS, co2Factor, type Measure, U_PRESETS, U_REF, applyMeasures, flux, measures, score, surfaceScore, totals, annualKwh, type Currency, type House, type Surface, type SurfaceType } from './lib/physics';
 import { demoHouse, fmt, uid, usePersisted } from './lib/store';
@@ -68,6 +69,7 @@ function Profile({ house, setHouse }: { house: House; setHouse: (h: House) => vo
   const setS = (p: Partial<House['settings']>) => setHouse({ ...house, settings: { ...s, ...p } });
   const upd = (rid: string, f: (ss: Surface[]) => Surface[]) => setHouse({ ...house, rooms: house.rooms.map((r) => (r.id === rid ? { ...r, surfaces: f(r.surfaces) } : r)) });
   return (<>
+    <AuthorCard />
     <div className="card"><h3>Climate & price</h3><div className="form">
       <label>House name<input value={house.name} onChange={(e) => setHouse({ ...house, name: e.target.value })} /></label>
       <label>Location<select value={s.location} onChange={(e) => { const l = LOCATIONS[e.target.value]; setS({ location: e.target.value, degreeDays: l.dd }); }}>{Object.keys(LOCATIONS).map((l) => <option key={l}>{l}</option>)}</select></label>
@@ -152,9 +154,16 @@ function FixFirst({ house, setHouse, selIds, setSelIds }: { house: House; setHou
   </>);
 }
 
+function AuthorCard() {
+  const [a, setA] = useAuthor(), f = (k: keyof Author, label: string, ph = '') => <label>{label}<input data-testid={'author-' + k} placeholder={ph} value={a[k]} onChange={(e) => setA({ ...a, [k]: e.target.value })} /></label>;
+  return <div className="card"><h3>Report author (Utarbeidet av)</h3><div className="form">{f('title', 'Title', 'Ingeniør')}{f('name', 'Name')}{f('org', 'Org.nr')}{f('phone', 'Phone (optional)')}{f('email', 'Email (optional)')}</div>
+    <p className="note">Shown on the report, the PDF and the shared thermal image. Saved in this browser.</p></div>;
+}
+
 function Report({ house, selIds }: { house: House; selIds: string[] | null }) {
+  const [author] = useAuthor(), today = new Date().toLocaleDateString('nb-NO');
   const pl = plan(house, selIds), sc = score(house), s = house.settings, t = pl.b, [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const pdf = async () => { setMsg({ ok: true, text: 'Generating PDF…' }); const { buildReportPdf } = await import('./lib/pdf'); const f = await buildReportPdf(house, pl, sc); (window as unknown as { __hhLastShare?: File }).__hhLastShare = f; return f; };
+  const pdf = async () => { setMsg({ ok: true, text: 'Generating PDF…' }); const { buildReportPdf } = await import('./lib/pdf'); const f = await buildReportPdf(house, pl, sc, author); (window as unknown as { __hhLastShare?: File }).__hhLastShare = f; return f; };
   const summary = () => `House Health: score ${sc.total}/100, ${fmt(t.wpm2, 1)} W/m², ${fmt(t.kwh)} kWh/yr, ${fmt(t.cost)} ${s.currency}/yr. Selected retrofit saves ${fmt(t.cost - pl.a.cost)} ${s.currency}/yr and ${fmt(pl.co2Year, 2)} t CO₂e/yr (${fmt(pl.co2Life, 1)} t over its lifetime).`;
   const onShare = async () => { try { const f = await pdf(); setMsg(await shareFile(f, 'House Health report', summary())); } catch (e) { setMsg({ ok: false, text: 'Could not create the PDF: ' + (e as Error).message }); } };
   const onDownload = async () => { try { const f = await pdf(); download(f); setMsg({ ok: true, text: `Downloaded ${f.name}.` }); } catch (e) { setMsg({ ok: false, text: 'Could not create the PDF: ' + (e as Error).message }); } };
@@ -162,6 +171,7 @@ function Report({ house, selIds }: { house: House; selIds: string[] | null }) {
     <div className="noprint toolbar"><button className="on" data-testid="share-report" onClick={onShare}>📤 Share report (PDF)</button><button data-testid="download-pdf" onClick={onDownload}>⬇ Download PDF</button><button onClick={() => window.print()}>🖨 Print</button></div>
     {msg && <div className={'noprint photomsg ' + (msg.ok ? 'ok' : 'err')} role="status" data-testid="report-msg">{msg.text}</div>}
     <h1>House Health report</h1>
+    <p className="author" data-testid="report-author">Utarbeidet av: <b>{authorLine(author)}</b> · {today}</p>
     <p className="dim">{house.name} · {s.location}, {s.degreeDays} degree-days · indoor {s.tIn} °C / outdoor {s.tOut} °C · {s.price} {s.currency}/kWh · {fmt(co2Factor(s) * 1000, 1)} g CO₂e/kWh · {new Date().toLocaleDateString()}</p>
     <div className="kpis"><Kpi label="Health score" value={String(sc.total)} unit="/100" /><Kpi big label="Avg. envelope heat loss" value={fmt(t.wpm2, 1)} unit="W/m²" /><Kpi label="Annual energy" value={fmt(t.kwh)} unit="kWh/yr" /><Kpi label="Annual cost" value={fmt(t.cost)} unit={s.currency + '/yr'} /><Kpi label="Emissions" value={fmt(t.kwh * co2Factor(s) / 1000, 2)} unit="t CO₂e/yr" /></div>
     <h2>Score breakdown</h2>
@@ -169,5 +179,6 @@ function Report({ house, selIds }: { house: House; selIds: string[] | null }) {
     <h2>Selected retrofit: before / after</h2><BeforeAfter house={house} pl={pl} />
     <h2>Selected measures, incl. climate account</h2><MeasureTable house={house} pl={pl} />
     <p className="note">Steady-state transmission model (ISO 6946 / degree-days). Ventilation, infiltration and solar/internal gains are excluded. Costs are rough estimates. CO₂ uses the emission factor shown above and assumed service lives, and excludes embodied emissions. This is an engineering note, not an official energy certificate (energiattest).</p>
+    <p className="author foot">Utarbeidet av {authorLine(author)} · {today}</p>
   </div>;
 }

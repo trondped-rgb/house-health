@@ -4,6 +4,7 @@ import { imageFlux, plausibility, hExterior, H_INT, type House, type Settings } 
 import { correctEmissivity } from '../lib/construction';
 import SpotPanel from './SpotPanel';
 import { shareFile } from '../lib/share';
+import { authorLine, getAuthor } from '../lib/author';
 import { spotU, type SpotInfo, type SpotResult } from '../lib/spots';
 import { fmt, usePersisted } from '../lib/store';
 
@@ -47,7 +48,7 @@ export default function Viewer({ settings, house, setHouse }: { settings: Settin
   };
   const shareImage = async () => {
     const d = img.current; if (!d) return; setMsg({ err: false, text: 'Rendering image…' });
-    const W = d.width, H = d.height, k = Math.max(1, W / 640), leg = Math.round(64 * k), c = document.createElement('canvas'); c.width = W; c.height = H + leg;
+    const W = d.width, H = d.height, k = Math.max(1, W / 640), leg = Math.round(82 * k), c = document.createElement('canvas'); c.width = W; c.height = H + leg;
     const g = c.getContext('2d')!; g.putImageData(d, 0, 0);
     g.lineWidth = 2 * k; g.font = `bold ${Math.round(13 * k)}px sans-serif`; g.textBaseline = 'bottom';
     for (const l of locks) {
@@ -65,6 +66,7 @@ export default function Viewer({ settings, house, setHouse }: { settings: Settin
     g.fillText(`House Health · ${cfg.mode} · h ${fmt(hEff, 1)} W/m²K · in ${settings.tIn} °C / out ${settings.tOut} °C`, 180 * k, H + 8 * k);
     g.fillText(`${new Date().toLocaleString()} · ${locks.length} spots${avg ? ` · image avg ${fmt(avg.q, 1)} W/m²` : ''}`, 180 * k, H + 26 * k);
     g.fillText('Indicative estimate. Not a calibrated radiometric measurement.', 180 * k, H + 44 * k);
+    g.font = `bold ${Math.round(11 * k)}px sans-serif`; g.fillText(`Utarbeidet av: ${authorLine(getAuthor())} · ${new Date().toLocaleDateString('nb-NO')}`, 8 * k, H + 63 * k);
     const blob = await new Promise<Blob | null>((ok) => c.toBlob(ok, 'image/jpeg', 0.9));
     if (!blob) { setMsg({ err: true, text: 'Could not render the image.' }); return; }
     const file = new File([blob], `house-health-thermal-${new Date().toISOString().slice(0, 10)}.jpg`, { type: 'image/jpeg' });

@@ -16,6 +16,9 @@ Deep links: `#thermal`, `#house`, `#fix`, `#dashboard`, `#report`.
 - **House profile**: rooms → surfaces (wall/window/roof/floor/door), area, U-value presets (Norwegian building eras → TEK17), indoor and design outdoor temperature, degree-days by city, and price in NOK (default 1.50/kWh) or EUR.
 - **Fix first**: retrofit measures ranked by savings ÷ cost ÷ effort, with a before/after scenario for the measures you select (score, W/m², kW, kWh, cost, investment, payback).
 
+## Report author
+The default author is **Ingeniør Trond A. Pedersen, Org.nr 989757474**. You can change it under House profile → "Report author" (title, name, org.nr, plus optional phone and email). It's saved in localStorage (`hh.author`) and shown as "Utarbeidet av … · date" in the report header and footer, in the PDF header and on every PDF page footer, and in the shared thermal image legend.
+
 ## Sharing out (v0.5)
 - **Thermal view → 📤 Share image**: renders the full-resolution thermal image with the tagged spots, their W/m² labels and a legend bar (ironbow scale min/max, shot type, h, indoor/outdoor temperature, date, image average). It produces a JPEG and shares it with a short text summary.
 - **Report → 📤 Share report (PDF)** and **⬇ Download PDF**: an A4-landscape PDF (jsPDF + jspdf-autotable, lazy-loaded) with key figures, score breakdown, before/after, the selected measures and the climate account.
